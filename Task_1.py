@@ -37,55 +37,75 @@ def batched_dict_rows(reader, batch_size):
 		yield batch
 
 
-def clean_large_csv(input_file, output_file, mmsi_column = "MMSI", delimiter = ",",
-                    batch_size = 100_000, processes = None):
+def clean_and_combine_csvs(input_files, output_file, mmsi_column = "MMSI", delimiter = ",",
+                           batch_size = 100_000, processes = None):
+	if not input_files:
+		raise ValueError("No input files were provided.")
+
 	if processes is None:
 		processes = max(1, mp.cpu_count() - 1)
 
 	total_rows = 0
 	kept_rows = 0
+	combined_fieldnames = None
 
-	with open(input_file, "r", newline="", encoding="utf-8") as infile, open(
-		output_file, "w", newline="", encoding="utf-8"
-	) as outfile:
-		reader = csv.DictReader(infile, delimiter=delimiter)
+	with open(output_file, "w", newline="", encoding="utf-8") as outfile:
+		writer = None
 
-		if not reader.fieldnames:
-			raise ValueError("Input file has no header row.")
+		for input_file in input_files:
+			with open(input_file, "r", newline="", encoding="utf-8") as infile:
+				reader = csv.DictReader(infile, delimiter=delimiter)
 
-		if mmsi_column not in reader.fieldnames:
-			raise ValueError(
-				f"Column '{mmsi_column}' not found. Available columns: {reader.fieldnames}"
-			)
+				if not reader.fieldnames:
+					raise ValueError(f"Input file '{input_file}' has no header row.")
 
-		writer = csv.DictWriter(outfile, fieldnames=reader.fieldnames, delimiter=delimiter)
-		writer.writeheader()
+				if mmsi_column not in reader.fieldnames:
+					raise ValueError(
+						f"Column '{mmsi_column}' not found in '{input_file}'. "
+						f"Available columns: {reader.fieldnames}"
+					)
 
-		tasks = ((batch, mmsi_column) for batch in batched_dict_rows(reader, batch_size))
+				if combined_fieldnames is None:
+					combined_fieldnames = reader.fieldnames
+					writer = csv.DictWriter(outfile, fieldnames=combined_fieldnames, delimiter=delimiter)
+					writer.writeheader()
+				elif reader.fieldnames != combined_fieldnames:
+					raise ValueError(
+						f"Header mismatch in '{input_file}'. "
+						f"Expected: {combined_fieldnames}, got: {reader.fieldnames}"
+					)
 
-		with mp.Pool(processes=processes) as pool:
-			for valid_rows, batch_total, batch_kept in pool.imap(process_batch, tasks, chunksize=1):
-				writer.writerows(valid_rows)
-				total_rows += batch_total
-				kept_rows += batch_kept
+				tasks = ((batch, mmsi_column) for batch in batched_dict_rows(reader, batch_size))
+
+				with mp.Pool(processes=processes) as pool:
+					for valid_rows, batch_total, batch_kept in pool.imap(process_batch, tasks, chunksize=1):
+						writer.writerows(valid_rows)
+						total_rows += batch_total
+						kept_rows += batch_kept
 
 	removed_rows = total_rows - kept_rows
+	print(f"Finished. Files processed: {len(input_files)}")
 	print(f"Finished. Total rows: {total_rows:,}")
 	print(f"Kept rows: {kept_rows:,}")
 	print(f"Removed rows: {removed_rows:,}")
 
 
 if __name__ == "__main__":
-    # Read and clean MMSI values
-	input_file = r"C:/Users/avark/Downloads/aisdk-2024-03-01/aisdk-2024-03-01.csv"
-	output_file = r"C:/Users/avark/Downloads/aisdk-2024-03-01/output_clean.csv"
+	# Read, clean MMSI values, and combine into one file
+	path = r"C:/Users/avark/Downloads/data/"
+ 
+	input_files = [
+		rf"{path}aisdk-2024-03-01.csv",
+		rf"{path}aisdk-2024-03-02.csv",
+	]
+	output_file = rf"{path}aisdk-combined-clean.csv"
 	mmsi_column = "MMSI"
 	delimiter = ","
 	batch_size = 100_000
 	processes = None
 
-	clean_large_csv(
-		input_file=input_file,
+	clean_and_combine_csvs(
+		input_files=input_files,
 		output_file=output_file,
 		mmsi_column=mmsi_column,
 		delimiter=delimiter,
