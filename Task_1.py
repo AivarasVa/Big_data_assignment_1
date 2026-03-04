@@ -2,6 +2,7 @@ import csv
 import multiprocessing as mp
 import re
 from itertools import islice
+from pathlib import Path
 
 
 SEQUENCE_INVALID = {"123456789", "987654321"}
@@ -92,13 +93,19 @@ def clean_and_combine_csvs(input_files, output_file, mmsi_column = "MMSI", delim
 
 if __name__ == "__main__":
 	# Read, clean MMSI values, and combine into one file
-	path = r"C:/Users/avark/Downloads/data/"
- 
+
+	# Finds the base directory
+	BASE_DIR = Path(__file__).resolve().parent
+	# Defines the .gitignore directory with AIS and output data
+	DATA_DIR = BASE_DIR / "data"
+	OUTPUT_DIR = BASE_DIR / "output"
+
 	input_files = [
-		rf"{path}aisdk-2024-03-01.csv",
-		rf"{path}aisdk-2024-03-02.csv",
+		DATA_DIR / "aisdk-2024-03-01.csv",
+		DATA_DIR / "aisdk-2024-03-02.csv",
 	]
-	output_file = rf"{path}aisdk-combined-clean.csv"
+	output_file = OUTPUT_DIR / "aisdk-combined-clean.csv"
+
 	mmsi_column = "MMSI"
 	delimiter = ","
 	batch_size = 100_000
