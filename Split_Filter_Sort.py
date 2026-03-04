@@ -12,8 +12,18 @@ SEQUENCE_INVALID = {"123456789", "987654321"}
 MMSI_REGEX = re.compile(r"^\d{9}$")
 
 
-def is_valid_mmsi(value):
-	mmsi = str(value).strip()
+def is_valid_row(row, mmsi_column, lat_column, lon_column):
+	try:
+		lat = float(row.get(lat_column, ""))
+		lon = float(row.get(lon_column, ""))
+		if lat == 0 or lon == 0 or abs(lat) > 90 or abs(lon) > 180:
+			return False
+	except ValueError:
+		return False
+
+	mmsi = row.get(mmsi_column, "").strip()
+
+	# mmsi = str(value).strip()
 
 	if not MMSI_REGEX.fullmatch(mmsi):
 		return False
@@ -29,7 +39,7 @@ def is_valid_mmsi(value):
 
 def shard_file(args):
 	"""PHASE 1: Reads one input file, filters, and splits into shard files."""
-	input_file, output_dir, file_suffix, num_shards, mmsi_column = args
+	input_file, output_dir, file_suffix, num_shards, mmsi_column, lon_column, lat_column = args
 	output_dir.mkdir(parents=True, exist_ok=True)
 
 	total_rows = 0
@@ -55,7 +65,7 @@ def shard_file(args):
 			total_rows += 1
 			mmsi = row.get(mmsi_column, "").strip()
 
-			if is_valid_mmsi(mmsi):
+			if is_valid_row(row, mmsi_column, lat_column, lon_column):
 				kept_rows += 1
 				# Hash the string to get a uniform integer, then modulo (MMSIs are not uniform, so hashing is needed)
 				mmsi_hash = zlib.crc32(mmsi.encode("utf-8"))
@@ -171,14 +181,16 @@ if __name__ == "__main__":
 	mmsi_column = "MMSI"
 	delimiter = ","
 	time_column = "# Timestamp"
+	lon_column = "Longitude"
+	lat_column = "Latitude"
 	num_shards = max(1, mp.cpu_count() - 1)
 	print(f"System has {mp.cpu_count()} cores. Setting num_shards to {num_shards}.")
 
 	print("Starting Phase 1: Filtering and Sharding (2 processes)...")
 	start_time1 = time.perf_counter()
 	shard_args = [
-		(input_files[0], OUTPUT_DIR, "day1", num_shards, mmsi_column),
-		(input_files[1], OUTPUT_DIR, "day2", num_shards, mmsi_column)
+		(input_files[0], OUTPUT_DIR, "day1", num_shards, mmsi_column, lon_column, lat_column),
+		(input_files[1], OUTPUT_DIR, "day2", num_shards, mmsi_column, lon_column, lat_column)
 	]
 	with mp.Pool(processes=2) as pool:
 		results = pool.map(shard_file, shard_args)
