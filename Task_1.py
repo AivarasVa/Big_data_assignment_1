@@ -1,8 +1,11 @@
 import csv
 import multiprocessing as mp
 import re
-from itertools import islice
+import time
+import zlib
 from pathlib import Path
+import heapq
+
 
 
 SEQUENCE_INVALID = {"123456789", "987654321"}
@@ -24,72 +27,131 @@ def is_valid_mmsi(value):
 	return True
 
 
-def process_batch(args):
-	rows, mmsi_column = args
-	valid_rows = [row for row in rows if is_valid_mmsi(row.get(mmsi_column, ""))]
-	return valid_rows, len(rows), len(valid_rows)
-
-
-def batched_dict_rows(reader, batch_size):
-	while True:
-		batch = list(islice(reader, batch_size))
-		if not batch:
-			break
-		yield batch
-
-
-def clean_and_combine_csvs(input_files, output_file, mmsi_column = "MMSI", delimiter = ",",
-                           batch_size = 100_000, processes = None):
-	if not input_files:
-		raise ValueError("No input files were provided.")
-
-	if processes is None:
-		processes = max(1, mp.cpu_count() - 1)
+def shard_file(args):
+	"""PHASE 1: Reads one input file, filters, and splits into shard files."""
+	input_file, output_dir, file_suffix, num_shards, mmsi_column = args
+	output_dir.mkdir(parents=True, exist_ok=True)
 
 	total_rows = 0
 	kept_rows = 0
-	combined_fieldnames = None
 
-	with open(output_file, "w", newline="", encoding="utf-8") as outfile:
-		writer = None
+	with open(input_file, "r", newline="", encoding="utf-8") as infile:
+		reader = csv.DictReader(infile)
+		fieldnames = reader.fieldnames
 
-		for input_file in input_files:
-			with open(input_file, "r", newline="", encoding="utf-8") as infile:
-				reader = csv.DictReader(infile, delimiter=delimiter)
+		# Open files handles simultaneously for this specific worker
+		out_files = []
+		writers = []
+		for i in range(num_shards):
+			filepath = output_dir / f"shard_{i}_{file_suffix}.csv"
+			f = open(filepath, "w", newline="", encoding="utf-8")
+			out_files.append(f)
+			writer = csv.DictWriter(f, fieldnames=fieldnames)
+			writer.writeheader()
+			writers.append(writer)
 
-				if not reader.fieldnames:
-					raise ValueError(f"Input file '{input_file}' has no header row.")
+		# Stream row by row
+		for row in reader:
+			total_rows += 1
+			mmsi = row.get(mmsi_column, "").strip()
 
-				if mmsi_column not in reader.fieldnames:
-					raise ValueError(
-						f"Column '{mmsi_column}' not found in '{input_file}'. "
-						f"Available columns: {reader.fieldnames}"
-					)
+			if is_valid_mmsi(mmsi):
+				kept_rows += 1
+				# Hash the string to get a uniform integer, then modulo (MMSIs are not uniform, so hashing is needed)
+				mmsi_hash = zlib.crc32(mmsi.encode("utf-8"))
+				shard_id = mmsi_hash % num_shards
+				writers[shard_id].writerow(row)
 
-				if combined_fieldnames is None:
-					combined_fieldnames = reader.fieldnames
-					writer = csv.DictWriter(outfile, fieldnames=combined_fieldnames, delimiter=delimiter)
-					writer.writeheader()
-				elif reader.fieldnames != combined_fieldnames:
-					raise ValueError(
-						f"Header mismatch in '{input_file}'. "
-						f"Expected: {combined_fieldnames}, got: {reader.fieldnames}"
-					)
+		# Close all file handles
+		for f in out_files:
+			f.close()
 
-				tasks = ((batch, mmsi_column) for batch in batched_dict_rows(reader, batch_size))
+	return total_rows, kept_rows
 
-				with mp.Pool(processes=processes) as pool:
-					for valid_rows, batch_total, batch_kept in pool.imap(process_batch, tasks, chunksize=1):
-						writer.writerows(valid_rows)
-						total_rows += batch_total
-						kept_rows += batch_kept
 
-	removed_rows = total_rows - kept_rows
-	print(f"Finished. Files processed: {len(input_files)}")
-	print(f"Finished. Total rows: {total_rows:,}")
-	print(f"Kept rows: {kept_rows:,}")
-	print(f"Removed rows: {removed_rows:,}")
+def merge_and_sort_shard(args):
+	"""PHASE 2: Memory-Safe External Merge Sort for Shards."""
+	shard_id, output_dir, suffixes, mmsi_column, time_column = args
 
+	chunk_size = 100_000  # Strict RAM limit control (approx 20MB-30MB per chunk) (bandziau det 300_000, 500_000, geriausiai pasirode 100_000)
+	temp_files = []
+	current_chunk = []
+	chunk_index = 0
+	fieldnames = None
+
+	# --- STEP 1: CHUNK AND SORT ---
+	for suffix in suffixes:
+		filepath = output_dir / f"shard_{shard_id}_{suffix}.csv"
+		if not filepath.exists():
+			continue
+
+		with open(filepath, "r", newline="", encoding="utf-8") as f:
+			reader = csv.DictReader(f)
+			if fieldnames is None:
+				fieldnames = reader.fieldnames
+
+			for row in reader:
+				current_chunk.append(row)
+
+				# When memory buffer is full, sort it and flush to disk
+				if len(current_chunk) >= chunk_size:
+					current_chunk.sort(key=lambda x: (x.get(mmsi_column, ""), x.get(time_column, "")))
+
+					temp_filepath = output_dir / f"temp_shard_{shard_id}_chunk_{chunk_index}.csv"
+					with open(temp_filepath, "w", newline="", encoding="utf-8") as tf:
+						writer = csv.DictWriter(tf, fieldnames=fieldnames)
+						writer.writeheader()
+						writer.writerows(current_chunk)
+
+					temp_files.append(temp_filepath)
+					chunk_index += 1
+					current_chunk = []  # Clear the list to free up RAM!
+
+	# Flush any remaining rows in the final chunk
+	if current_chunk:
+		current_chunk.sort(key=lambda x: (x.get(mmsi_column, ""), x.get(time_column, "")))
+		temp_filepath = output_dir / f"temp_shard_{shard_id}_chunk_{chunk_index}.csv"
+		with open(temp_filepath, "w", newline="", encoding="utf-8") as tf:
+			writer = csv.DictWriter(tf, fieldnames=fieldnames)
+			writer.writeheader()
+			writer.writerows(current_chunk)
+		temp_files.append(temp_filepath)
+
+	if not temp_files:
+		return 0
+
+	# --- STEP 2: STREAMING MERGE (Zero RAM overhead) ---
+	final_filepath = output_dir / f"final_shard_{shard_id}.csv"
+
+	# Open all temporary chunk files simultaneously
+	file_handles = [open(tf, "r", newline="", encoding="utf-8") for tf in temp_files]
+	readers = [csv.DictReader(fh) for fh in file_handles]
+
+	with open(final_filepath, "w", newline="", encoding="utf-8") as final_f:
+		writer = csv.DictWriter(final_f, fieldnames=fieldnames)
+		writer.writeheader()
+
+		# heapq.merge yields rows one-by-one in sorted order across all readers
+		merged_stream = heapq.merge(*readers, key=lambda x: (x.get(mmsi_column, ""), x.get(time_column, "")))
+
+		total_rows = 0
+		for row in merged_stream:
+			writer.writerow(row)
+			total_rows += 1
+
+	# Cleanup: Close and delete temporary files
+	for fh in file_handles:
+		fh.close()
+	for tf in temp_files:
+		tf.unlink()
+
+	# Optional: Delete the original un-merged shard files to save disk space
+	for suffix in suffixes:
+		old_filepath = output_dir / f"shard_{shard_id}_{suffix}.csv"
+		if old_filepath.exists():
+			old_filepath.unlink()
+
+	return total_rows
 
 if __name__ == "__main__":
 	# Read, clean MMSI values, and combine into one file
@@ -108,14 +170,44 @@ if __name__ == "__main__":
 
 	mmsi_column = "MMSI"
 	delimiter = ","
-	batch_size = 100_000
-	processes = None
+	time_column = "# Timestamp"
+	num_shards = max(1, mp.cpu_count() - 1)
+	print(f"System has {mp.cpu_count()} cores. Setting num_shards to {num_shards}.")
 
-	clean_and_combine_csvs(
-		input_files=input_files,
-		output_file=output_file,
-		mmsi_column=mmsi_column,
-		delimiter=delimiter,
-		batch_size=batch_size,
-		processes=processes,
-	)
+	print("Starting Phase 1: Filtering and Sharding (2 processes)...")
+	start_time1 = time.perf_counter()
+	shard_args = [
+		(input_files[0], OUTPUT_DIR, "day1", num_shards, mmsi_column),
+		(input_files[1], OUTPUT_DIR, "day2", num_shards, mmsi_column)
+	]
+	with mp.Pool(processes=2) as pool:
+		results = pool.map(shard_file, shard_args)
+
+	total_processed = sum(r[0] for r in results)
+	total_kept = sum(r[1] for r in results)
+
+	end_time1 = time.perf_counter()
+
+	execution_time1 = end_time1 - start_time1
+	print(f"Phase 1 Complete. Processed {total_processed:,} rows. Kept {total_kept:,} rows. Took {execution_time1:.2f} seconds.")
+
+	print(f"\nStarting Phase 2: Merging and Sorting ({num_shards} processes)...")
+	start_time2 = time.perf_counter()
+
+	# Create arguments for 8 processes, each handling one shard ID (0 through 7)
+	merge_args = [
+		(i, OUTPUT_DIR, ["day1", "day2"], mmsi_column, time_column)
+		for i in range(num_shards)
+	]
+
+	with mp.Pool(processes=num_shards) as pool:
+		final_counts = pool.map(merge_and_sort_shard, merge_args)
+
+	end_time2 = time.perf_counter()
+
+	execution_time2 = end_time2 - start_time2
+
+	execution_time = end_time2 - start_time1
+
+	print(f"Phase 2 Complete. {num_shards} final partitioned files generated in {OUTPUT_DIR}. Took {execution_time2:.2f} seconds.")
+	print(f"Overall execution time: {execution_time:.2f} seconds.")
