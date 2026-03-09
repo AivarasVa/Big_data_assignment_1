@@ -105,6 +105,15 @@ def analyze_shard(args):
 # --- MAIN EXECUTION (POOLING & UNIFICATION) ---
 
 if __name__ == "__main__":
+    import argparse
+
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--cores", type=int, default=mp.cpu_count() - 1)
+    parser.add_argument("--chunk_size", type=int, default=100000)  # Only needed if script uses it
+    args = parser.parse_args()
+
+    num_cores = args.cores
+
     BASE_DIR = Path(__file__).resolve().parent
     OUTPUT_DIR = BASE_DIR / "output"
 
@@ -113,18 +122,17 @@ if __name__ == "__main__":
     time_column = "# Timestamp"
     lat_column = "Latitude"
     lon_column = "Longitude"
-    num_shards = max(1, mp.cpu_count() - 1)
 
-    print(f"Starting Phase 3: Shadow Fleet Anomaly Search using {num_shards} cores...")
+    print(f"Starting Phase 3: Shadow Fleet Anomaly Search using {num_cores} cores...")
     start_time = time.perf_counter()
     # 1. Prepare arguments for the parallel pool
     pool_args = []
-    for i in range(num_shards):
+    for i in range(num_cores):
         shard_path = OUTPUT_DIR / f"final_shard_{i}.csv"
         pool_args.append((shard_path, mmsi_column, time_column, lat_column, lon_column))
 
     # 2. Execute the pool
-    with mp.Pool(processes=num_shards) as pool:
+    with mp.Pool(processes=num_cores) as pool:
         # returns a list of lists: [ [results_from_shard_0], [results_from_shard_1], ... ]
         nested_results = pool.map(analyze_shard, pool_args)
 

@@ -188,6 +188,14 @@ def find_loitering_worker(args):
 # --- MAIN EXECUTION ---
 
 if __name__ == "__main__":
+    import argparse
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--cores", type=int, default=mp.cpu_count() - 1)
+    parser.add_argument("--chunk_size", type=int, default=50000)
+    args = parser.parse_args()
+
+    num_cores = args.cores # or num_cores = args.cores depending on what you named it
+
     BASE_DIR = Path(__file__).resolve().parent
     OUTPUT_DIR = BASE_DIR / "output"
 
@@ -196,12 +204,12 @@ if __name__ == "__main__":
     lat_col = "Latitude"
     lon_col = "Longitude"
     sog_col = "SOG"
-    num_shards = max(1, mp.cpu_count() - 1)
+
 
     raw_output_csv = OUTPUT_DIR / "all_loitering_events_unsorted.csv"
     final_sorted_csv = OUTPUT_DIR / "all_loitering_events.csv"
 
-    print(f"Starting Queue-Based Data Reduction using {num_shards} workers...")
+    print(f"Starting Queue-Based Data Reduction using {num_cores} workers...")
 
     # 1. Create the Manager and the memory-capped Queue
     manager = mp.Manager()
@@ -213,11 +221,11 @@ if __name__ == "__main__":
 
     # 3. Prepare arguments and execute the parallel workers
     pool_args = []
-    for i in range(num_shards):
+    for i in range(num_cores):
         shard_path = OUTPUT_DIR / f"final_shard_{i}.csv"
         pool_args.append((shard_path, event_queue, mmsi_col, time_col, lat_col, lon_col, sog_col))
 
-    with mp.Pool(processes=num_shards) as pool:
+    with mp.Pool(processes=num_cores) as pool:
         pool.map(find_loitering_worker, pool_args)
 
     # 4. Graceful Shutdown of the Writer
@@ -226,7 +234,7 @@ if __name__ == "__main__":
 
     # 5. External Merge Sort the raw file
     if raw_output_csv.exists():
-        external_merge_sort_csv(raw_output_csv, final_sorted_csv)
+        external_merge_sort_csv(raw_output_csv, final_sorted_csv, chunk_size=args.chunk_size)
 
         # Optional: Delete the unsorted file to keep the output directory clean
         raw_output_csv.unlink()

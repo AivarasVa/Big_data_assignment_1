@@ -112,6 +112,15 @@ def analyze_shard_anomaly_d(args):
 # --- MAIN EXECUTION ---
 
 if __name__ == "__main__":
+    import argparse
+
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--cores", type=int, default=mp.cpu_count() - 1)
+    parser.add_argument("--chunk_size", type=int, default=100000)  # Only needed if script uses it
+    args = parser.parse_args()
+
+    num_cores = args.cores  # or num_cores = args.cores depending on what you named it
+
     BASE_DIR = Path(__file__).resolve().parent
     OUTPUT_DIR = BASE_DIR / "output"
 
@@ -119,18 +128,18 @@ if __name__ == "__main__":
     time_column = "# Timestamp"
     lat_column = "Latitude"
     lon_column = "Longitude"
-    num_shards = max(1, mp.cpu_count() - 1)
 
-    print(f"Starting Phase 3: Shadow Fleet Anomaly D Search using {num_shards} cores...")
+
+    print(f"Starting Phase 3: Shadow Fleet Anomaly D Search using {num_cores} cores...")
 
     start_time = time.perf_counter()
 
     pool_args = []
-    for i in range(num_shards):
+    for i in range(num_cores):
         shard_path = OUTPUT_DIR / f"final_shard_{i}.csv"
         pool_args.append((shard_path, mmsi_column, time_column, lat_column, lon_column))
 
-    with mp.Pool(processes=num_shards) as pool:
+    with mp.Pool(processes=num_cores) as pool:
         nested_results = pool.map(analyze_shard_anomaly_d, pool_args)
 
     flat_results = [item for sublist in nested_results for item in sublist]

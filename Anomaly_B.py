@@ -73,6 +73,15 @@ def sweep_line_worker_block(args):
 # --- MAIN EXECUTION ---
 
 if __name__ == "__main__":
+    import argparse
+
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--cores", type=int, default=mp.cpu_count() - 1)
+    parser.add_argument("--chunk_size", type=int, default=100000)  # Only needed if script uses it
+    args = parser.parse_args()
+
+    num_cores = args.cores
+
     BASE_DIR = Path(__file__).resolve().parent
     OUTPUT_DIR = BASE_DIR / "output"
 
@@ -101,7 +110,6 @@ if __name__ == "__main__":
     print(f"Sorting {len(events)} events...")
     events.sort(key=lambda x: x["Start_Time"])
 
-    num_cores = max(1, mp.cpu_count() - 1)
     print(f"Executing Parallel Block Partitioning across {num_cores} cores...")
 
     # 3. Calculate the boundaries (chunks) for each core

@@ -39,7 +39,7 @@ def is_valid_row(row, mmsi_column, lat_column, lon_column):
 
 def shard_file(args):
 	"""PHASE 1: Reads one input file, filters, and splits into shard files."""
-	input_file, output_dir, file_suffix, num_shards, mmsi_column, lon_column, lat_column = args
+	input_file, output_dir, file_suffix, num_cores, mmsi_column, lon_column, lat_column = args
 	output_dir.mkdir(parents=True, exist_ok=True)
 
 	total_rows = 0
@@ -52,7 +52,7 @@ def shard_file(args):
 		# Open files handles simultaneously for this specific worker
 		out_files = []
 		writers = []
-		for i in range(num_shards):
+		for i in range(num_cores):
 			filepath = output_dir / f"shard_{i}_{file_suffix}.csv"
 			f = open(filepath, "w", newline="", encoding="utf-8")
 			out_files.append(f)
@@ -69,7 +69,7 @@ def shard_file(args):
 				kept_rows += 1
 				# Hash the string to get a uniform integer, then modulo (MMSIs are not uniform, so hashing is needed)
 				mmsi_hash = zlib.crc32(mmsi.encode("utf-8"))
-				shard_id = mmsi_hash % num_shards
+				shard_id = mmsi_hash % num_cores
 				writers[shard_id].writerow(row)
 
 		# Close all file handles
@@ -81,9 +81,9 @@ def shard_file(args):
 
 def merge_and_sort_shard(args):
 	"""PHASE 2: Memory-Safe External Merge Sort for Shards."""
-	shard_id, output_dir, suffixes, mmsi_column, time_column = args
+	shard_id, output_dir, suffixes, mmsi_column, time_column, chunk_size = args
 
-	chunk_size = 100_000  # Strict RAM limit control (approx 20MB-30MB per chunk) (bandziau det 300_000, 500_000, geriausiai pasirode 100_000)
+	# chunk_size = 100_000  # Strict RAM limit control (approx 20MB-30MB per chunk) (bandziau det 300_000, 500_000, geriausiai pasirode 100_000)
 	temp_files = []
 	current_chunk = []
 	chunk_index = 0
@@ -164,6 +164,15 @@ def merge_and_sort_shard(args):
 	return total_rows
 
 if __name__ == "__main__":
+	import argparse
+
+	parser = argparse.ArgumentParser()
+	parser.add_argument("--cores", type=int, default=mp.cpu_count() - 1)
+	parser.add_argument("--chunk_size", type=int, default=100000)
+	args = parser.parse_args()
+
+	num_cores = args.cores
+	chunk_size = args.chunk_size
 	# Read, clean MMSI values, and combine into one file
 
 	# Finds the base directory
@@ -183,16 +192,16 @@ if __name__ == "__main__":
 	time_column = "# Timestamp"
 	lon_column = "Longitude"
 	lat_column = "Latitude"
-	num_shards = max(1, mp.cpu_count() - 1)
-	print(f"System has {mp.cpu_count()} cores. Setting num_shards to {num_shards}.")
 
-	print("Starting Phase 1: Filtering and Sharding (2 processes)...")
+	print(f"System has {mp.cpu_count()} cores. Setting num_cores to {num_cores}.")
+
+	print(f"Starting Phase 1: Filtering and Sharding ({num_cores} processes)...")
 	start_time1 = time.perf_counter()
 	shard_args = [
-		(input_files[0], OUTPUT_DIR, "day1", num_shards, mmsi_column, lon_column, lat_column),
-		(input_files[1], OUTPUT_DIR, "day2", num_shards, mmsi_column, lon_column, lat_column)
+		(input_files[0], OUTPUT_DIR, "day1", num_cores, mmsi_column, lon_column, lat_column),
+		(input_files[1], OUTPUT_DIR, "day2", num_cores, mmsi_column, lon_column, lat_column)
 	]
-	with mp.Pool(processes=2) as pool:
+	with mp.Pool(processes=min(2, num_cores)) as pool:
 		results = pool.map(shard_file, shard_args)
 
 	total_processed = sum(r[0] for r in results)
@@ -203,16 +212,16 @@ if __name__ == "__main__":
 	execution_time1 = end_time1 - start_time1
 	print(f"Phase 1 Complete. Processed {total_processed:,} rows. Kept {total_kept:,} rows. Took {execution_time1:.2f} seconds.")
 
-	print(f"\nStarting Phase 2: Merging and Sorting ({num_shards} processes)...")
+	print(f"\nStarting Phase 2: Merging and Sorting ({num_cores} processes)...")
 	start_time2 = time.perf_counter()
 
-	# Create arguments for 8 processes, each handling one shard ID (0 through 7)
+
 	merge_args = [
-		(i, OUTPUT_DIR, ["day1", "day2"], mmsi_column, time_column)
-		for i in range(num_shards)
+		(i, OUTPUT_DIR, ["day1", "day2"], mmsi_column, time_column, chunk_size)
+		for i in range(num_cores)
 	]
 
-	with mp.Pool(processes=num_shards) as pool:
+	with mp.Pool(processes=num_cores) as pool:
 		final_counts = pool.map(merge_and_sort_shard, merge_args)
 
 	end_time2 = time.perf_counter()
@@ -221,5 +230,5 @@ if __name__ == "__main__":
 
 	execution_time = end_time2 - start_time1
 
-	print(f"Phase 2 Complete. {num_shards} final partitioned files generated in {OUTPUT_DIR}. Took {execution_time2:.2f} seconds.")
+	print(f"Phase 2 Complete. {num_cores} final partitioned files generated in {OUTPUT_DIR}. Took {execution_time2:.2f} seconds.")
 	print(f"Overall execution time: {execution_time:.2f} seconds.")
