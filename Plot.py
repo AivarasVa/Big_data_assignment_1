@@ -88,6 +88,6 @@ if __name__ == "__main__":
     DATA_OUTPUT = BASE_DIR / "output"
 
     # ENTER THE MMSI YOU WANT TO ANALYZE
-    TARGET = "219000962"
+    TARGET = "212376000"
 
     plot_complete_vessel_history(TARGET, DATA_OUTPUT)
