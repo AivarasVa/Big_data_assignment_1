@@ -5,8 +5,8 @@ import sys
 # ==========================================
 # ⚙️ GLOBAL PIPELINE PARAMETERS
 # ==========================================
-CORES = 1  # Number of CPU cores to allocate to the workers
-CHUNK_SIZE = 25000  # Max rows to hold in RAM during sorting phases
+CORES = 10  # Number of CPU cores to allocate to the workers
+CHUNK_SIZE = 100_000  # Max rows to hold in RAM during sorting phases
 
 # List your scripts in the exact order they need to run
 SCRIPTS = [

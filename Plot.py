@@ -7,10 +7,10 @@ import multiprocessing as mp
 # Plots the vessel path over an interactive map
 
 
-def plot_complete_vessel_history(target_mmsi, output_dir):
+def plot_complete_vessel_history(target_mmsi, output_dir, CORES):
     # 1. Determine which shard to open
     mmsi_str = str(target_mmsi).strip()
-    num_shards = max(1, mp.cpu_count() - 1)
+    num_shards = CORES
     mmsi_hash = zlib.crc32(mmsi_str.encode("utf-8"))
     shard_id = mmsi_hash % num_shards
 
@@ -86,8 +86,9 @@ def plot_complete_vessel_history(target_mmsi, output_dir):
 if __name__ == "__main__":
     BASE_DIR = Path(__file__).resolve().parent
     DATA_OUTPUT = BASE_DIR / "output"
+    CORES = 10
 
     # ENTER THE MMSI YOU WANT TO ANALYZE
     TARGET = "212376000"
 
-    plot_complete_vessel_history(TARGET, DATA_OUTPUT)
+    plot_complete_vessel_history(TARGET, DATA_OUTPUT, CORES)
