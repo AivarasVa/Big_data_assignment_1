@@ -1,23 +1,11 @@
 import csv
 import time
 import multiprocessing as mp
-from datetime import datetime
 from itertools import groupby
 from pathlib import Path
 import pandas as pd
+from helper_functions import parse_timestamp
 
-
-# --- HELPER FUNCTIONS ---
-
-def parse_timestamp(time_str):
-    """Converts the AIS timestamp string to a datetime object."""
-    try:
-        return datetime.strptime(time_str.strip(), "%d/%m/%Y %H:%M:%S")
-    except ValueError:
-        return None
-
-
-# --- THE PARALLEL WORKER ---
 
 def analyze_shard_anomaly_c(args):
     """
@@ -30,8 +18,8 @@ def analyze_shard_anomaly_c(args):
     if not shard_file.exists():
         return results
 
-    GAP_THRESHOLD_SECONDS = 2 * 3600  # 2 hours
-    DRAFT_CHANGE_THRESHOLD = 0.05  # 5%
+    GAP_THRESHOLD_SECONDS = 2 * 3600
+    DRAFT_CHANGE_THRESHOLD = 0.05
 
     with open(shard_file, "r", newline="", encoding="utf-8") as f:
         reader = csv.DictReader(f)
@@ -45,7 +33,6 @@ def analyze_shard_anomaly_c(args):
                     curr_time = parse_timestamp(ping.get(time_col, ""))
                     draft_str = ping.get(draft_col, "").strip()
 
-                    # --- THE DIRTY DRAFT FILTER ---
                     if not draft_str:
                         continue  # Skip empty draft cells
 
@@ -63,16 +50,16 @@ def analyze_shard_anomaly_c(args):
                 if previous_ping is not None:
                     time_diff = (curr_time - previous_ping['time']).total_seconds()
 
-                    # 1. Did it go dark for > 2 hours?
+                    # Did it go dark for > 2 hours?
                     if time_diff > GAP_THRESHOLD_SECONDS:
 
                         prev_draft = previous_ping['draft']
 
-                        # 2. Calculate the absolute percentage change safely
+                        # Calculate the absolute percentage change safely
                         draft_diff = abs(curr_draft - prev_draft)
                         pct_change = draft_diff / prev_draft
 
-                        # 3. Did the draft change by more than 5%?
+                        # Did the draft change by more than 5%?
                         if pct_change > DRAFT_CHANGE_THRESHOLD:
                             results.append({
                                 "MMSI": mmsi,
@@ -83,10 +70,8 @@ def analyze_shard_anomaly_c(args):
                                 "New_Draft": curr_draft,
                                 "Pct_Change": round(pct_change * 100, 2)
                             })
-                            # We found the anomaly for this ship, break to move to the next ship
                             break
 
-                            # Update previous ping for the next iteration
                 previous_ping = {
                     'time': curr_time,
                     'draft': curr_draft
@@ -95,17 +80,15 @@ def analyze_shard_anomaly_c(args):
     return results
 
 
-# --- MAIN EXECUTION (POOLING & UNIFICATION) ---
-
 if __name__ == "__main__":
     import argparse
 
     parser = argparse.ArgumentParser()
     parser.add_argument("--cores", type=int, default=mp.cpu_count() - 1)
-    parser.add_argument("--chunk_size", type=int, default=100000)  # Only needed if script uses it
+    parser.add_argument("--chunk_size", type=int, default=100000)
     args = parser.parse_args()
 
-    num_cores = args.cores  # or num_cores = args.cores depending on what you named it
+    num_cores = args.cores
 
     BASE_DIR = Path(__file__).resolve().parent
     OUTPUT_DIR = BASE_DIR / "output"
@@ -116,7 +99,7 @@ if __name__ == "__main__":
     draft_column = "Draught"
 
 
-    print(f"Starting Phase 3: Shadow Fleet Anomaly C Search using {num_cores} cores...")
+    print(f"Starting Phase 3: Shadow Fleet Anomaly C Search using {num_cores} cores")
 
     start_time = time.perf_counter()
 
@@ -140,7 +123,7 @@ if __name__ == "__main__":
     if flat_results:
         df = pd.DataFrame(flat_results)
 
-        # Sort by the most suspicious vessels (largest draft change percentage)
+        # Sort by the most suspicious vessels
         df = df.sort_values(by=['Pct_Change', 'Gap_Hours'], ascending=[False, False])
 
         final_csv_path = OUTPUT_DIR / "anomaly_C_results.csv"

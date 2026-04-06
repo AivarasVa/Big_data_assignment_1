@@ -1,34 +1,11 @@
 import csv
-import math
 import time
 import multiprocessing as mp
-from datetime import datetime
 from itertools import groupby
 from pathlib import Path
 import pandas as pd
+from helper_functions import calculate_maritime_distance, parse_timestamp
 
-
-# --- HELPER FUNCTIONS ---
-
-def calculate_maritime_distance(lat1, lon1, lat2, lon2):
-    """Calculates the great-circle distance in Nautical Miles (NM)."""
-    R = 3440.065
-    lat1, lon1, lat2, lon2 = map(math.radians, [lat1, lon1, lat2, lon2])
-    dlat = lat2 - lat1
-    dlon = lon2 - lon1
-    a = math.sin(dlat / 2) ** 2 + math.cos(lat1) * math.cos(lat2) * math.sin(dlon / 2) ** 2
-    c = 2 * math.atan2(math.sqrt(a), math.sqrt(1 - a))
-    return R * c
-
-
-def parse_timestamp(time_str):
-    try:
-        return datetime.strptime(time_str.strip(), "%d/%m/%Y %H:%M:%S")
-    except ValueError:
-        return None
-
-
-# --- THE PARALLEL WORKER ---
 
 def analyze_shard_anomaly_d(args):
     """
@@ -42,7 +19,6 @@ def analyze_shard_anomaly_d(args):
         return results
 
     SPEED_THRESHOLD_KNOTS = 60.0
-    # Minimum distance required to rule out sub-second GPS multipath jitter
     MIN_DISTANCE_NM = 1.0
 
     with open(shard_file, "r", newline="", encoding="utf-8") as f:
@@ -83,7 +59,7 @@ def analyze_shard_anomaly_d(args):
                         hours = time_diff_seconds / 3600.0
                         speed_knots = distance_nm / hours
 
-                        # 1. Did it teleport faster than 60 knots?
+                        # Did it teleport faster than 60 knots?
                         if speed_knots > SPEED_THRESHOLD_KNOTS:
                             results.append({
                                 "MMSI": mmsi,
@@ -97,7 +73,6 @@ def analyze_shard_anomaly_d(args):
                                 "Lat_2": curr_lat,
                                 "Lon_2": curr_lon
                             })
-                            # We only need to catch the clone once
                             break
 
                 previous_ping = {
@@ -109,17 +84,15 @@ def analyze_shard_anomaly_d(args):
     return results
 
 
-# --- MAIN EXECUTION ---
-
 if __name__ == "__main__":
     import argparse
 
     parser = argparse.ArgumentParser()
     parser.add_argument("--cores", type=int, default=mp.cpu_count() - 1)
-    parser.add_argument("--chunk_size", type=int, default=100000)  # Only needed if script uses it
+    parser.add_argument("--chunk_size", type=int, default=100000) 
     args = parser.parse_args()
 
-    num_cores = args.cores  # or num_cores = args.cores depending on what you named it
+    num_cores = args.cores
 
     BASE_DIR = Path(__file__).resolve().parent
     OUTPUT_DIR = BASE_DIR / "output"
@@ -154,7 +127,6 @@ if __name__ == "__main__":
     if flat_results:
         df = pd.DataFrame(flat_results)
 
-        # Sort by the most ridiculous speeds (the clearest evidence of cloning)
         df = df.sort_values(by=['Implied_Speed_Knots'], ascending=False)
 
         final_csv_path = OUTPUT_DIR / "anomaly_D_results.csv"

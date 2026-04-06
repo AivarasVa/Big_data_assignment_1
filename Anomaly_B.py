@@ -4,22 +4,8 @@ import multiprocessing as mp
 from datetime import datetime, timedelta
 from pathlib import Path
 import pandas as pd
+from helper_functions import calculate_maritime_distance
 
-
-# --- HELPER FUNCTIONS ---
-
-def calculate_maritime_distance(lat1, lon1, lat2, lon2):
-    """Calculates the great-circle distance in Nautical Miles (NM)."""
-    R = 3440.065
-    lat1, lon1, lat2, lon2 = map(math.radians, [lat1, lon1, lat2, lon2])
-    dlat = lat2 - lat1
-    dlon = lon2 - lon1
-    a = math.sin(dlat / 2) ** 2 + math.cos(lat1) * math.cos(lat2) * math.sin(dlon / 2) ** 2
-    c = 2 * math.atan2(math.sqrt(a), math.sqrt(1 - a))
-    return R * c
-
-
-# --- THE PARALLEL WORKER ---
 
 def sweep_line_worker_block(args):
     """
@@ -29,19 +15,16 @@ def sweep_line_worker_block(args):
     start_row, end_row, events = args
     results = []
 
-    DISTANCE_THRESHOLD_NM = 0.2699  # 500 meters
+    DISTANCE_THRESHOLD_NM = 0.2699
     TWO_HOURS = timedelta(hours=2)
     total_events = len(events)
 
-    # Core only iterates through its assigned block (e.g., rows 0 to 300)
     for i in range(start_row, end_row):
         e1 = events[i]
 
-        # Inner loop always looks ahead to the end of the full list
         for j in range(i + 1, total_events):
             e2 = events[j]
 
-            # THE SWEEP-LINE BREAK CONDITION
             if e2["Start_Time"] > (e1["End_Time"] - TWO_HOURS):
                 break
 
@@ -69,8 +52,6 @@ def sweep_line_worker_block(args):
 
     return results
 
-
-# --- MAIN EXECUTION ---
 
 if __name__ == "__main__":
     import argparse

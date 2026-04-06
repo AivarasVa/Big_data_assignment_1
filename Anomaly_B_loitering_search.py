@@ -6,13 +6,10 @@ from itertools import groupby
 from pathlib import Path
 
 
-# --- HELPER PARSER ---
 def parse_time_for_sort(row):
-    """Helper function to guarantee correct chronological sorting of the European date format."""
+    """Helper function to guarantee correct chronological sorting of the European date format"""
     return datetime.strptime(row["Start_Time"], "%d/%m/%Y %H:%M:%S")
 
-
-# --- THE EXTERNAL MERGE SORT ---
 
 def external_merge_sort_csv(input_file, output_file, chunk_size=50000):
     """
@@ -24,9 +21,6 @@ def external_merge_sort_csv(input_file, output_file, chunk_size=50000):
     chunk_index = 0
     fieldnames = None
 
-    print("\nStarting memory-safe External Merge Sort on loitering events...")
-
-    # --- STEP 1: CHUNK AND SORT ---
     with open(input_file, "r", newline="", encoding="utf-8") as f:
         reader = csv.DictReader(f)
         fieldnames = reader.fieldnames
@@ -46,7 +40,7 @@ def external_merge_sort_csv(input_file, output_file, chunk_size=50000):
 
                 temp_files.append(temp_filepath)
                 chunk_index += 1
-                current_chunk = []  # Clear RAM
+                current_chunk = [] 
 
         # Flush any remaining rows
         if current_chunk:
@@ -58,9 +52,8 @@ def external_merge_sort_csv(input_file, output_file, chunk_size=50000):
                 writer.writerows(current_chunk)
             temp_files.append(temp_filepath)
 
-    # --- STEP 2: STREAMING MERGE ---
     if not temp_files:
-        return  # Nothing to sort
+        return
 
     # Open all temporary files simultaneously
     file_handles = [open(tf, "r", newline="", encoding="utf-8") for tf in temp_files]
@@ -76,7 +69,6 @@ def external_merge_sort_csv(input_file, output_file, chunk_size=50000):
         for row in merged_stream:
             writer.writerow(row)
 
-    # --- STEP 3: CLEANUP ---
     for fh in file_handles:
         fh.close()
     for tf in temp_files:
@@ -84,8 +76,6 @@ def external_merge_sort_csv(input_file, output_file, chunk_size=50000):
 
     print(f"Sort complete. Final sorted file saved at: {output_file.name}")
 
-
-# --- THE CONSUMER (THE WRITER) ---
 
 def csv_writer_process(queue, output_filepath):
     """
@@ -110,8 +100,6 @@ def csv_writer_process(queue, output_filepath):
 
     print(f"Writer Process finished. Successfully wrote {events_written} unsorted events to disk.")
 
-
-# --- THE PRODUCERS (THE WORKERS) ---
 
 def find_loitering_worker(args):
     """
@@ -185,8 +173,6 @@ def find_loitering_worker(args):
                     })
 
 
-# --- MAIN EXECUTION ---
-
 if __name__ == "__main__":
     import argparse
     parser = argparse.ArgumentParser()
@@ -194,7 +180,7 @@ if __name__ == "__main__":
     parser.add_argument("--chunk_size", type=int, default=50000)
     args = parser.parse_args()
 
-    num_cores = args.cores # or num_cores = args.cores depending on what you named it
+    num_cores = args.cores
 
     BASE_DIR = Path(__file__).resolve().parent
     OUTPUT_DIR = BASE_DIR / "output"
@@ -209,7 +195,7 @@ if __name__ == "__main__":
     raw_output_csv = OUTPUT_DIR / "all_loitering_events_unsorted.csv"
     final_sorted_csv = OUTPUT_DIR / "all_loitering_events.csv"
 
-    print(f"Starting Queue-Based Data Reduction using {num_cores} workers...")
+    print(f"Starting Queue-Based Data Reduction using {num_cores} workers")
 
     # 1. Create the Manager and the memory-capped Queue
     manager = mp.Manager()

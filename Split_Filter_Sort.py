@@ -6,9 +6,7 @@ import zlib
 from pathlib import Path
 import heapq
 
-
-
-SEQUENCE_INVALID = {"123456789", "987654321"}
+SEQUENCE_INVALID = {"123456789", "987654321", "111111111", "222222222", "333333333", "444444444", "555555555", "666666666", "777777777", "888888888", "999999999"}
 MMSI_REGEX = re.compile(r"^\d{9}$")
 
 
@@ -23,8 +21,6 @@ def is_valid_row(row, mmsi_column, lat_column, lon_column):
 
 	mmsi = row.get(mmsi_column, "").strip()
 
-	# mmsi = str(value).strip()
-
 	if not MMSI_REGEX.fullmatch(mmsi):
 		return False
 
@@ -38,7 +34,7 @@ def is_valid_row(row, mmsi_column, lat_column, lon_column):
 
 
 def shard_file(args):
-	"""PHASE 1: Reads one input file, filters, and splits into shard files."""
+	"""Reads one input file, filters, and splits into shard files"""
 	input_file, output_dir, file_suffix, num_cores, mmsi_column, lon_column, lat_column = args
 	output_dir.mkdir(parents=True, exist_ok=True)
 
@@ -67,7 +63,7 @@ def shard_file(args):
 
 			if is_valid_row(row, mmsi_column, lat_column, lon_column):
 				kept_rows += 1
-				# Hash the string to get a uniform integer, then modulo (MMSIs are not uniform, so hashing is needed)
+				# Hash the string to get a uniform integer
 				mmsi_hash = zlib.crc32(mmsi.encode("utf-8"))
 				shard_id = mmsi_hash % num_cores
 				writers[shard_id].writerow(row)
@@ -80,16 +76,14 @@ def shard_file(args):
 
 
 def merge_and_sort_shard(args):
-	"""PHASE 2: Memory-Safe External Merge Sort for Shards."""
+	"""Memory-Safe External Merge Sort for Shards"""
 	shard_id, output_dir, suffixes, mmsi_column, time_column, chunk_size = args
 
-	# chunk_size = 100_000  # Strict RAM limit control (approx 20MB-30MB per chunk) (bandziau det 300_000, 500_000, geriausiai pasirode 100_000)
 	temp_files = []
 	current_chunk = []
 	chunk_index = 0
 	fieldnames = None
 
-	# --- STEP 1: CHUNK AND SORT ---
 	for suffix in suffixes:
 		filepath = output_dir / f"shard_{shard_id}_{suffix}.csv"
 		if not filepath.exists():
@@ -103,7 +97,6 @@ def merge_and_sort_shard(args):
 			for row in reader:
 				current_chunk.append(row)
 
-				# When memory buffer is full, sort it and flush to disk
 				if len(current_chunk) >= chunk_size:
 					current_chunk.sort(key=lambda x: (x.get(mmsi_column, ""), x.get(time_column, "")))
 
@@ -115,9 +108,8 @@ def merge_and_sort_shard(args):
 
 					temp_files.append(temp_filepath)
 					chunk_index += 1
-					current_chunk = []  # Clear the list to free up RAM!
+					current_chunk = []
 
-	# Flush any remaining rows in the final chunk
 	if current_chunk:
 		current_chunk.sort(key=lambda x: (x.get(mmsi_column, ""), x.get(time_column, "")))
 		temp_filepath = output_dir / f"temp_shard_{shard_id}_chunk_{chunk_index}.csv"
@@ -130,10 +122,8 @@ def merge_and_sort_shard(args):
 	if not temp_files:
 		return 0
 
-	# --- STEP 2: STREAMING MERGE (Zero RAM overhead) ---
 	final_filepath = output_dir / f"final_shard_{shard_id}.csv"
 
-	# Open all temporary chunk files simultaneously
 	file_handles = [open(tf, "r", newline="", encoding="utf-8") for tf in temp_files]
 	readers = [csv.DictReader(fh) for fh in file_handles]
 
@@ -141,7 +131,6 @@ def merge_and_sort_shard(args):
 		writer = csv.DictWriter(final_f, fieldnames=fieldnames)
 		writer.writeheader()
 
-		# heapq.merge yields rows one-by-one in sorted order across all readers
 		merged_stream = heapq.merge(*readers, key=lambda x: (x.get(mmsi_column, ""), x.get(time_column, "")))
 
 		total_rows = 0
@@ -149,19 +138,18 @@ def merge_and_sort_shard(args):
 			writer.writerow(row)
 			total_rows += 1
 
-	# Cleanup: Close and delete temporary files
 	for fh in file_handles:
 		fh.close()
 	for tf in temp_files:
 		tf.unlink()
 
-	# Optional: Delete the original un-merged shard files to save disk space
 	for suffix in suffixes:
 		old_filepath = output_dir / f"shard_{shard_id}_{suffix}.csv"
 		if old_filepath.exists():
 			old_filepath.unlink()
 
 	return total_rows
+
 
 if __name__ == "__main__":
 	import argparse
@@ -173,11 +161,8 @@ if __name__ == "__main__":
 
 	num_cores = args.cores
 	chunk_size = args.chunk_size
-	# Read, clean MMSI values, and combine into one file
 
-	# Finds the base directory
 	BASE_DIR = Path(__file__).resolve().parent
-	# Defines the .gitignore directory with AIS and output data
 	DATA_DIR = BASE_DIR / "data"
 	OUTPUT_DIR = BASE_DIR / "output"
 
@@ -195,12 +180,14 @@ if __name__ == "__main__":
 
 	print(f"System has {mp.cpu_count()} cores. Setting num_cores to {num_cores}.")
 
-	print(f"Starting Phase 1: Filtering and Sharding ({num_cores} processes)...")
+	print(f"Starting Phase 1: Filtering and Sharding ({num_cores} processes)")
+ 
 	start_time1 = time.perf_counter()
 	shard_args = [
 		(input_files[0], OUTPUT_DIR, "day1", num_cores, mmsi_column, lon_column, lat_column),
 		(input_files[1], OUTPUT_DIR, "day2", num_cores, mmsi_column, lon_column, lat_column)
 	]
+ 
 	with mp.Pool(processes=min(2, num_cores)) as pool:
 		results = pool.map(shard_file, shard_args)
 
