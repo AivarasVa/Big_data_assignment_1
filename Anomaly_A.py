@@ -9,7 +9,7 @@ from helper_functions import calculate_maritime_distance, parse_timestamp
 
 def analyze_shard(args):
     """
-    Worker function: Scans a single sorted shard for Anomaly A
+    Scans a single sorted shard for Anomaly A
     """
     shard_file, mmsi_col, time_col, lat_col, lon_col = args
     results = []
@@ -28,12 +28,9 @@ def analyze_shard(args):
             previous_ping = None
 
             for ping in group:
-                try:
-                    curr_time = parse_timestamp(ping.get(time_col, ""))
-                    curr_lat = float(ping.get(lat_col, ""))
-                    curr_lon = float(ping.get(lon_col, ""))
-                except (ValueError, TypeError):
-                    continue
+                curr_time = parse_timestamp(ping.get(time_col, ""))
+                curr_lat = float(ping.get(lat_col, ""))
+                curr_lon = float(ping.get(lon_col, ""))
 
                 if curr_time is None:
                     continue
@@ -43,10 +40,7 @@ def analyze_shard(args):
 
                     # Did it go dark for > 4 hours?
                     if time_diff > GAP_THRESHOLD_SECONDS:
-                        distance_nm = calculate_maritime_distance(
-                            previous_ping['lat'], previous_ping['lon'],
-                            curr_lat, curr_lon
-                        )
+                        distance_nm = calculate_maritime_distance(previous_ping['lat'], previous_ping['lon'], curr_lat, curr_lon)
 
                         # Did it move significantly while dark?
                         if distance_nm > MOVEMENT_THRESHOLD_NM:
@@ -92,7 +86,7 @@ if __name__ == "__main__":
     lat_column = "Latitude"
     lon_column = "Longitude"
 
-    print(f"Starting Phase 3: Shadow Fleet Anomaly Search using {num_cores} cores")
+    print(f"Shadow Fleet Anomaly Search using {num_cores} cores")
     start_time = time.perf_counter()
 
     pool_args = []
@@ -109,7 +103,7 @@ if __name__ == "__main__":
 
     execution_time = end_time - start_time
 
-    print(f"Search complete! Found {len(flat_results)} vessels committing Anomaly A.")
+    print(f"{len(flat_results)} vessels committing Anomaly A.")
     print(f"Execution time: {execution_time:.2f} seconds.")
 
     if flat_results:
@@ -120,6 +114,5 @@ if __name__ == "__main__":
         final_csv_path = OUTPUT_DIR / "anomaly_A_results.csv"
         df.to_csv(final_csv_path, index=False)
 
-        print(f"\nSaved unified results to: {final_csv_path.name}")
         print("\n--- TOP 5 MOST SUSPICIOUS VESSELS (ANOMALY A) ---")
         print(df[['MMSI', 'Gap_Hours', 'Distance_NM', 'Implied_Knots']].head(5).to_string(index=False))

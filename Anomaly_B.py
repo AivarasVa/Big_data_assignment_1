@@ -69,13 +69,13 @@ if __name__ == "__main__":
     input_csv = OUTPUT_DIR / "all_loitering_events.csv"
 
     if not input_csv.exists():
-        print("Could not find all_loitering_events.csv. Run Phase 1 first!")
+        print("Could not find all_loitering_events.csv")
         exit()
 
-    print("Loading and preparing loitering events...")
+    print("Loading and preparing loitering events")
     events = []
 
-    # 1. Load the data
+    # Load the data
     with open(input_csv, "r", encoding="utf-8") as f:
         reader = csv.DictReader(f)
         for row in reader:
@@ -87,13 +87,12 @@ if __name__ == "__main__":
                 "Lon": float(row["Lon"])
             })
 
-    # 2. Sort the full list chronologically
-    print(f"Sorting {len(events)} events...")
+    # Sort the full list chronologically
     events.sort(key=lambda x: x["Start_Time"])
 
-    print(f"Executing Parallel Block Partitioning across {num_cores} cores...")
+    print(f"Executing Parallel Block Partitioning across {num_cores} cores.")
 
-    # 3. Calculate the boundaries (chunks) for each core
+    # Calculate the boundaries (chunks) for each core
     pool_args = []
     total_rows = len(events)
     chunk_size = math.ceil(total_rows / num_cores)
@@ -102,22 +101,22 @@ if __name__ == "__main__":
         start_row = i * chunk_size
         end_row = min((i + 1) * chunk_size, total_rows)
 
-        # If we've already assigned all rows, stop creating arguments
+        # If already assigned all rows, stop creating arguments
         if start_row >= total_rows:
             break
 
         # Give the core its start row, its end row, and a copy of the list
         pool_args.append((start_row, end_row, events))
 
-    # 4. Fire the parallel workers
+    # Start the parallel workers
     with mp.Pool(processes=num_cores) as pool:
         nested_results = pool.map(sweep_line_worker_block, pool_args)
 
     anomaly_b_results = [item for sublist in nested_results for item in sublist]
 
-    print(f"Search complete! Found {len(anomaly_b_results)} suspected ship-to-ship transfers.")
+    print(f"{len(anomaly_b_results)} suspected ship-to-ship transfers")
 
-    # 5. Final Formatting
+    # Final Formatting
     if anomaly_b_results:
         df = pd.DataFrame(anomaly_b_results)
 
@@ -130,6 +129,5 @@ if __name__ == "__main__":
         final_csv_path = OUTPUT_DIR / "anomaly_B_results.csv"
         df.to_csv(final_csv_path, index=False)
 
-        print(f"\nSaved unified results to: {final_csv_path.name}")
         print("\n--- TOP 5 MOST SUSPICIOUS TRANSFERS (ANOMALY B) ---")
         print(df[['Ship_1_MMSI', 'Ship_2_MMSI', 'Overlap_Hours', 'Distance_NM']].head(5).to_string(index=False))

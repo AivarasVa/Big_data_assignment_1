@@ -16,7 +16,6 @@ def calculate_dfsi():
 
     mmsi_data = defaultdict(lambda: {'max_gap': 0.0, 'c_count': 0, 'total_dist': 0.0})
 
-    print("Reading and aggregating Anomaly A (Gaps)")
     if file_a.exists():
         with open(file_a, "r", encoding="utf-8") as f:
             reader = csv.DictReader(f)
@@ -26,7 +25,6 @@ def calculate_dfsi():
                 # Update with the MAXIMUM gap found for this ship
                 mmsi_data[mmsi]['max_gap'] = max(mmsi_data[mmsi]['max_gap'], gap_hours)
 
-    print("Reading and aggregating Anomaly C (Draft Changes)")
     if file_c.exists():
         with open(file_c, "r", encoding="utf-8") as f:
             reader = csv.DictReader(f)
@@ -35,7 +33,6 @@ def calculate_dfsi():
                 # Count the NUMBER of illicit draft changes
                 mmsi_data[mmsi]['c_count'] += 1
 
-    print("Reading and aggregating Anomaly D (Teleportation/Cloning)")
     if file_d.exists():
         with open(file_d, "r", encoding="utf-8") as f:
             reader = csv.DictReader(f)
@@ -49,7 +46,7 @@ def calculate_dfsi():
         print("No anomaly data found to process!")
         return
 
-    print("Calculating final DFSI scores...")
+    print("Calculating final DFSI scores.")
     final_results = []
 
     # Iterate through the dictionary and apply the formula
@@ -68,13 +65,12 @@ def calculate_dfsi():
             "Draft_Changes_Count": c_count
         })
 
-    # Sort Results (Highest DFSI Score First)
+    # Sort Results
     final_results.sort(key=lambda x: x["DFSI_Score"], reverse=True)
 
     # Write Final Output to CSV
     final_output_path = OUTPUT_DIR / "FINAL_DFSI_RANKINGS.csv"
     with open(final_output_path, "w", newline="", encoding="utf-8") as f:
-        # Dynamically grab the fieldnames from the first dictionary
         fieldnames = final_results[0].keys()
         writer = csv.DictWriter(f, fieldnames=fieldnames)
 
@@ -91,8 +87,6 @@ def calculate_dfsi():
         print(f"{i}. MMSI: {ship['MMSI']} | DFSI Score: {ship['DFSI_Score']} "
               f"(Gaps: {ship['Max_Gap_Hours']}h, Jumps: {ship['Total_Impossible_Distance_NM']}nm, Draft Changes: {ship['Draft_Changes_Count']})")
 
-    print("\n========================================================")
-    print(f"Saved full rankings to: {final_output_path.name}")
     print(f"Total Execution Time: {execution_time:.6f} seconds")
 
 

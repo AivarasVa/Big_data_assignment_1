@@ -9,7 +9,7 @@ from helper_functions import parse_timestamp
 
 def analyze_shard_anomaly_c(args):
     """
-    Worker function: Scans a single sorted shard for Anomaly C.
+    Scans a single sorted shard for Anomaly C.
     Detects a >5% draught change during a >2 hour blackout.
     """
     shard_file, mmsi_col, time_col, draft_col = args
@@ -29,21 +29,17 @@ def analyze_shard_anomaly_c(args):
             previous_ping = None
 
             for ping in group:
-                try:
-                    curr_time = parse_timestamp(ping.get(time_col, ""))
-                    draft_str = ping.get(draft_col, "").strip()
+                curr_time = parse_timestamp(ping.get(time_col, ""))
+                draft_str = ping.get(draft_col, "").strip()
 
-                    if not draft_str:
-                        continue  # Skip empty draft cells
+                if not draft_str:
+                    continue
 
-                    curr_draft = float(draft_str)
+                curr_draft = float(draft_str)
 
-                    if curr_draft <= 0.0:
-                        continue  # Skip uncalibrated (0.0) or corrupted negative drafts
-
-                except (ValueError, TypeError):
-                    continue  # Skip generally corrupted rows
-
+                if curr_draft <= 0.0:
+                    continue
+                
                 if curr_time is None:
                     continue
 
@@ -99,7 +95,7 @@ if __name__ == "__main__":
     draft_column = "Draught"
 
 
-    print(f"Starting Phase 3: Shadow Fleet Anomaly C Search using {num_cores} cores")
+    print(f"Shadow Fleet Anomaly C Search using {num_cores} cores")
 
     start_time = time.perf_counter()
 
@@ -117,7 +113,7 @@ if __name__ == "__main__":
 
     execution_time = end_time - start_time
 
-    print(f"Search complete! Found {len(flat_results)} vessels committing Anomaly C.")
+    print(f"{len(flat_results)} vessels committing Anomaly C.")
     print(f"Execution time: {execution_time:.2f} seconds.")
 
     if flat_results:
@@ -129,6 +125,5 @@ if __name__ == "__main__":
         final_csv_path = OUTPUT_DIR / "anomaly_C_results.csv"
         df.to_csv(final_csv_path, index=False)
 
-        print(f"\nSaved unified results to: {final_csv_path.name}")
         print("\n--- TOP 5 MOST SUSPICIOUS VESSELS (ANOMALY C) ---")
         print(df[['MMSI', 'Gap_Hours', 'Old_Draft', 'New_Draft', 'Pct_Change']].head(5).to_string(index=False))

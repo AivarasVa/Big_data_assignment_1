@@ -7,13 +7,13 @@ from pathlib import Path
 
 
 def parse_time_for_sort(row):
-    """Helper function to guarantee correct chronological sorting of the European date format"""
+    """Date formatings"""
     return datetime.strptime(row["Start_Time"], "%d/%m/%Y %H:%M:%S")
 
 
 def external_merge_sort_csv(input_file, output_file, chunk_size=50000):
     """
-    Sorts a CSV file using strict memory limits.
+    Sorts a CSV file
     Reads chunks into RAM, sorts them, writes to temp files, and merges them using a heap.
     """
     temp_files = []
@@ -74,7 +74,7 @@ def external_merge_sort_csv(input_file, output_file, chunk_size=50000):
     for tf in temp_files:
         tf.unlink()
 
-    print(f"Sort complete. Final sorted file saved at: {output_file.name}")
+    print(f"Sort complete")
 
 
 def csv_writer_process(queue, output_filepath):
@@ -98,12 +98,10 @@ def csv_writer_process(queue, output_filepath):
             writer.writerow(event)
             events_written += 1
 
-    print(f"Writer Process finished. Successfully wrote {events_written} unsorted events to disk.")
-
 
 def find_loitering_worker(args):
     """
-    Worker function: Scans a shard and pushes events to the Queue.
+    Scans a shard and pushes events to the Queue.
     """
     shard_file, queue, mmsi_col, time_col, lat_col, lon_col, sog_col = args
 
@@ -123,20 +121,16 @@ def find_loitering_worker(args):
             last_valid_time = None
 
             for ping in group:
-                try:
-                    curr_time = datetime.strptime(ping.get(time_col, "").strip(), "%d/%m/%Y %H:%M:%S")
-                    curr_lat = float(ping.get(lat_col, ""))
-                    curr_lon = float(ping.get(lon_col, ""))
-                    sog_str = ping.get(sog_col, "").strip()
+                curr_time = datetime.strptime(ping.get(time_col, "").strip(), "%d/%m/%Y %H:%M:%S")
+                curr_lat = float(ping.get(lat_col, ""))
+                curr_lon = float(ping.get(lon_col, ""))
+                sog_str = ping.get(sog_col, "").strip()
 
-                    if not sog_str:
-                        continue
-                    curr_sog = float(sog_str)
+                if not sog_str:
+                    continue
+                curr_sog = float(sog_str)
 
-                    if curr_lat == 0.0 or curr_lon == 0.0 or abs(curr_lat) > 90 or abs(curr_lon) > 180:
-                        continue
-
-                except (ValueError, TypeError):
+                if curr_lat == 0.0 or curr_lon == 0.0 or abs(curr_lat) > 90 or abs(curr_lon) > 180:
                     continue
 
                 if curr_sog < SOG_THRESHOLD:
@@ -197,15 +191,15 @@ if __name__ == "__main__":
 
     print(f"Starting Queue-Based Data Reduction using {num_cores} workers")
 
-    # 1. Create the Manager and the memory-capped Queue
+    # Create the Manager and the memory-capped Queue
     manager = mp.Manager()
     event_queue = manager.Queue(maxsize=2000)
 
-    # 2. Start the dedicated Writer Process
+    # Start the dedicated Writer Process
     writer_proc = mp.Process(target=csv_writer_process, args=(event_queue, raw_output_csv))
     writer_proc.start()
 
-    # 3. Prepare arguments and execute the parallel workers
+    # Prepare arguments and execute the parallel workers
     pool_args = []
     for i in range(num_cores):
         shard_path = OUTPUT_DIR / f"final_shard_{i}.csv"
@@ -214,15 +208,15 @@ if __name__ == "__main__":
     with mp.Pool(processes=num_cores) as pool:
         pool.map(find_loitering_worker, pool_args)
 
-    # 4. Graceful Shutdown of the Writer
+    # Shutdown of the Writer
     event_queue.put("POISON_PILL")
     writer_proc.join()
 
-    # 5. External Merge Sort the raw file
+    # External Merge Sort the raw file
     if raw_output_csv.exists():
         external_merge_sort_csv(raw_output_csv, final_sorted_csv, chunk_size=args.chunk_size)
 
-        # Optional: Delete the unsorted file to keep the output directory clean
+        #Delete the unsorted file to keep the output directory clean
         raw_output_csv.unlink()
 
-    print(f"Phase 1 Complete. Master sorted file generated at: {final_sorted_csv.name}")
+    print(f"Master sorted file generated at: {final_sorted_csv.name}")
